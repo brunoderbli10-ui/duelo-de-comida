@@ -32,7 +32,7 @@
 </style>
 </head>
 <body>
-<div id="stage"><canvas id="game" width="480" height="270"></canvas></div>
+<div id="stage"><canvas id="game" width="960" height="540"></canvas></div>
 <script>
 (() => {
   'use strict';
@@ -1636,43 +1636,76 @@
     ctx.globalAlpha = 1;
   }
 
+  // ------------------------------------------------------------ tipografia
+  const UI_FONT = '"Inter", "Segoe UI", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif';
+
   function text(str, x, y, size, color, align, weight) {
-    ctx.font = (weight || 'bold') + ' ' + size + 'px "Courier New", ui-monospace, monospace';
+    ctx.font = (weight || 600) + ' ' + size + 'px ' + UI_FONT;
     ctx.textAlign = align || 'center';
     ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillText(str, x + 1, y + 1);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillText(str, x + 0.9, y + 0.9);
     ctx.fillStyle = color;
     ctx.fillText(str, x, y);
   }
 
+  // cantos arredondados
+  function rr(x, y, w, h, r) {
+    const rad = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rad, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rad);
+    ctx.arcTo(x + w, y + h, x, y + h, rad);
+    ctx.arcTo(x, y + h, x, y, rad);
+    ctx.arcTo(x, y, x + w, y, rad);
+    ctx.closePath();
+  }
+
+  function panel(x, y, w, h, r, fill, stroke, lw) {
+    rr(x, y, w, h, r);
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke) {
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = lw || 1.5;
+      ctx.stroke();
+    }
+  }
+
+  // tecla desenhada (estilo teclado moderno)
+  function keycap(x, y, label, accent) {
+    const w = 15, h = 14;
+    panel(x, y, w, h, 4, 'rgba(255,255,255,0.10)', 'rgba(255,255,255,0.22)', 1);
+    ctx.fillStyle = 'rgba(255,255,255,0.10)';
+    ctx.fillRect(x + 4, y + h - 3, w - 8, 1);
+    text(label, x + w / 2, y + 10.5, 8.5, accent || '#ffffff', 'center', 700);
+  }
+
   function hpBar(x, y, w, h, hp, fromRight) {
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fillRect(x - 2, y - 2, w + 4, h + 4);
-    ctx.fillStyle = '#38384a';
+    ctx.save();
+    rr(x, y, w, h, h / 2);
+    ctx.clip();
+    ctx.fillStyle = '#1a2030';
     ctx.fillRect(x, y, w, h);
-
     const fw = Math.round(w * hp / 100);
-    ctx.fillStyle = hp > 60 ? '#5fd35f' : hp > 30 ? '#f2c14e' : '#e5484d';
-    if (fromRight) ctx.fillRect(x + w - fw, y, fw, h);
-    else ctx.fillRect(x, y, fw, h);
-
-    ctx.fillStyle = 'rgba(255,255,255,0.22)';
-    if (fromRight) ctx.fillRect(x + w - fw, y, fw, 2);
-    else ctx.fillRect(x, y, fw, 2);
+    ctx.fillStyle = hp > 60 ? '#4ade80' : hp > 30 ? '#facc15' : '#f43f5e';
+    ctx.fillRect(fromRight ? x + w - fw : x, y, fw, h);
+    ctx.fillStyle = 'rgba(255,255,255,0.20)';
+    ctx.fillRect(fromRight ? x + w - fw : x, y, fw, 2);
+    ctx.restore();
+    rr(x, y, w, h, h / 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
   }
 
   function drawPips(x, y, n, fromRight) {
     for (let i = 0; i < MAX_BLOCKS; i++) {
       const px = fromRight ? x - 8 - i * 11 : x + i * 11;
       const on = i < n;
-      ctx.fillStyle = '#12121c';
-      ctx.fillRect(px - 1, y - 1, 10, 10);
-      ctx.fillStyle = on ? '#7fc4ff' : '#33334a';
-      ctx.fillRect(px, y, 8, 8);
+      panel(px, y, 8, 8, 2.5, on ? '#60a5fa' : '#2b3245', on ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.08)', 1);
       if (on) {
         ctx.fillStyle = 'rgba(255,255,255,0.45)';
-        ctx.fillRect(px, y, 8, 2);
+        ctx.fillRect(px + 1.5, y + 1.5, 5, 1.5);
       }
     }
   }
@@ -1688,122 +1721,148 @@
   }
 
   function drawHUD() {
-    ctx.fillStyle = 'rgba(10,10,20,0.22)';
-    ctx.fillRect(0, 0, W, 46);
+    const g = ctx.createLinearGradient(0, 0, 0, 50);
+    g.addColorStop(0, 'rgba(7,10,18,0.62)');
+    g.addColorStop(1, 'rgba(7,10,18,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, 50);
 
-    text(CHARS[wash.ch].short, 14, 13, 9, '#9dc4ff', 'left');
-    text(CHARS[nap.ch].short, W - 14, 13, 9, '#9ce3ad', 'right');
+    text(CHARS[wash.ch].short, 14, 12, 9.5, '#d7e6ff', 'left', 700);
+    text(CHARS[nap.ch].short, W - 14, 12, 9.5, '#d7f7e0', 'right', 700);
 
-    hpBar(14, 18, 168, 10, wash.hp, false);
-    hpBar(W - 14 - 168, 18, 168, 10, nap.hp, true);
+    hpBar(14, 17, 168, 9, wash.hp, false);
+    hpBar(W - 14 - 168, 17, 168, 9, nap.hp, true);
 
-    drawPips(14, 33, wash.blocks, false);
-    drawPips(W - 14, 33, nap.blocks, true);
+    drawPips(14, 31, wash.blocks, false);
+    drawPips(W - 14, 31, nap.blocks, true);
 
     // estrela: especial liberado (3 escudos)
-    if (wash.blocks >= SPECIAL_COST) drawStar(77, 37, '#ffe27a');
-    if (nap.blocks >= SPECIAL_COST) drawStar(W - 14 - 63, 37, '#ffe27a');
+    if (wash.blocks >= SPECIAL_COST) drawStar(77, 35, '#ffcf4d');
+    if (nap.blocks >= SPECIAL_COST) drawStar(W - 14 - 63, 35, '#ffcf4d');
 
-    text('VS', W / 2, 30, 11, '#ffffff', 'center');
+    panel(W / 2 - 12, 15, 24, 17, 8.5, 'rgba(7,10,18,0.78)', 'rgba(255,255,255,0.16)', 1);
+    text('VS', W / 2, 27.5, 8, '#e2e8f0', 'center', 700);
   }
 
   function drawStart() {
-    ctx.fillStyle = 'rgba(10,10,22,0.68)';
+    ctx.fillStyle = 'rgba(6,8,14,0.86)';
     ctx.fillRect(0, 0, W, H);
 
-    text('DUELO DE COMIDA', W / 2, 74, 22, '#ffe27a', 'center');
-    text('6 PERSONAGENS  ·  6 ESPECIAIS', W / 2, 94, 9, '#cfe9ff', 'center');
-    text('A comida voa sozinha: só desviar!', W / 2, 110, 9, '#ffffff', 'center');
+    text('DUELO DE COMIDA', W / 2, 44, 26, '#ffffff', 'center', 800);
+    ctx.fillStyle = '#ffcf4d';
+    rr(W / 2 - 22, 52, 44, 3, 1.5);
+    ctx.fill();
 
-    text('WASHINGTON · NAPOLEÃO · CHE · STALIN · ELON · THATCHER', W / 2, 130, 8, '#ffd79a', 'center');
+    text('6 personagens · 6 ataques especiais', W / 2, 68, 10, '#9fb0c9', 'center', 500);
 
-    text('P1  (WASD)', W / 2 - 110, 154, 9, '#9dc4ff', 'center');
-    text('A bandeira  ·  D defletir  ·  W pular  ·  S especial', W / 2 + 16, 154, 8, '#d8e4ff', 'center');
+    const cards = [
+      {
+        x: 24, accent: '#6f9cff', title: 'JOGADOR 1', tag: 'WASD',
+        rows: [['A', 'Bandeira (segure)'], ['D', 'Defletir comida'], ['W', 'Pular'], ['S', 'Especial']]
+      },
+      {
+        x: 250, accent: '#4ade80', title: 'JOGADOR 2', tag: 'SETAS',
+        rows: [['←', 'Bandeira (segure)'], ['→', 'Defletir comida'], ['↑', 'Pular'], ['↓', 'Especial']]
+      }
+    ];
 
-    text('P2  (SETAS)', W / 2 - 110, 174, 9, '#9ce3ad', 'center');
-    text('← bandeira  ·  → defletir  ·  ↑ pular  ·  ↓ especial', W / 2 + 16, 174, 8, '#d8ffe4', 'center');
+    for (let k = 0; k < cards.length; k++) {
+      const card = cards[k];
+      panel(card.x, 82, 206, 110, 12, 'rgba(18,22,34,0.92)', 'rgba(255,255,255,0.09)', 1);
 
-    text('Bandeira erguida 3s = +1 escudo  ·  especial custa 3 escudos', W / 2, 198, 8, '#9a9ab0', 'center');
-    text('O escudo devolve a comida — e só gasta quando acerta!', W / 2, 212, 8, '#9a9ab0', 'center');
+      text(card.title, card.x + 14, 98, 8.5, card.accent, 'left', 700);
+      text(card.tag, card.x + 206 - 14, 98, 7.5, '#7d8798', 'right', 600);
 
-    if (Math.floor(tick / 30) % 2 === 0) {
-      text('PRESSIONE QUALQUER TECLA', W / 2, 240, 11, '#ffffff', 'center');
+      for (let i = 0; i < 4; i++) {
+        const y = 108 + i * 18;
+        keycap(card.x + 14, y, card.rows[i][0], card.accent);
+        text(card.rows[i][1], card.x + 36, y + 10.5, 8.5,
+          i === 3 ? '#ffd479' : '#dbe4f2', 'left', 500);
+      }
     }
+
+    text('Bandeira erguida por 3s = +1 escudo  ·  especial custa 3 escudos',
+      W / 2, 208, 8, '#8b96a9', 'center', 500);
+    text('O escudo devolve a comida — só gasta quando acerta',
+      W / 2, 220, 8, '#6f7a8e', 'center', 500);
+
+    panel(W / 2 - 82, 231, 164, 22, 11, 'rgba(255,207,77,0.14)', 'rgba(255,207,77,0.55)', 1.2);
+    text('PRESSIONE QUALQUER TECLA', W / 2, 246, 9.5, '#ffd479', 'center', 700);
   }
 
   function drawSelect() {
-    ctx.fillStyle = 'rgba(8,8,18,0.82)';
+    ctx.fillStyle = 'rgba(6,8,14,0.90)';
     ctx.fillRect(0, 0, W, H);
 
-    text('ESCOLHA OS LUTADORES', W / 2, 26, 16, '#ffe27a', 'center');
+    text('ESCOLHA OS LUTADORES', W / 2, 25, 18, '#ffffff', 'center', 800);
+    text('P1: A/D escolhe · W confirma        P2: ←/→ escolhe · ↑ confirma',
+      W / 2, 39, 8, '#93a0b8', 'center', 500);
 
-    const cards = [
-      { x: 16, color: ready[0] ? '#ffe27a' : '#5a86d8', tag: 'P1  WASD' },
-      { x: 248, color: ready[1] ? '#ffe27a' : '#5fa86a', tag: 'P2  SETAS' }
-    ];
+    const accents = ['#6f9cff', '#4ade80'];
+    const tags = ['P1 · WASD', 'P2 · SETAS'];
 
     for (let i = 0; i < 2; i++) {
-      const card = cards[i];
+      const x = i === 0 ? 16 : 248;
+      const y = 46, cw = 216, chh = 182;
+      const accent = ready[i] ? '#ffcf4d' : accents[i];
       const ch = CHARS[sel[i]];
-      const cw = 216, cy = 40, chh = 180;
 
-      ctx.fillStyle = 'rgba(12,12,24,0.9)';
-      ctx.fillRect(card.x, cy, cw, chh);
-      ctx.fillStyle = card.color;
-      ctx.fillRect(card.x, cy, cw, 2);
-      ctx.fillRect(card.x, cy + chh - 2, cw, 2);
-      ctx.fillRect(card.x, cy, 2, chh);
-      ctx.fillRect(card.x + cw - 2, cy, 2, chh);
+      panel(x, y, cw, chh, 12, 'rgba(18,22,34,0.94)', 'rgba(255,255,255,0.10)', 1);
+      rr(x + 2, y + 2, cw - 4, 3, 1.5);
+      ctx.fillStyle = accent;
+      ctx.fill();
 
-      text(card.tag, card.x + cw / 2, cy + 16, 8, card.color, 'center');
-      text(ch.name, card.x + cw / 2, cy + 32, 9, '#ffffff', 'center');
+      text(tags[i], x + cw / 2, y + 17, 8.5, accent, 'center', 700);
+      text(ch.name, x + cw / 2, y + 33, 11, '#ffffff', 'center', 700);
 
       // sprite grande
-      drawSprite(ch.sprite, ch.pal, card.x + cw / 2 - 24, cy + 42, 3, false, i === 1);
+      drawSprite(ch.sprite, ch.pal, x + cw / 2 - 24, y + 41, 3, false, i === 1);
 
       // setas de troca
       if (!ready[i]) {
-        text('<', card.x + 14, cy + 84, 16, card.color, 'center');
-        text('>', card.x + cw - 14, cy + 84, 16, card.color, 'center');
+        ctx.globalAlpha = 0.55 + 0.45 * Math.sin(tick * 0.12);
+        text('<', x + 13, y + 88, 16, accent, 'center', 700);
+        text('>', x + cw - 13, y + 88, 16, accent, 'center', 700);
+        ctx.globalAlpha = 1;
       }
 
-      text('ESPECIAL: ' + ch.special.name, card.x + cw / 2, cy + 132, 8, '#ffd79a', 'center');
-      text(ch.special.desc, card.x + cw / 2, cy + 144, 8, '#cfe9ff', 'center');
-      text('Bandeira: ' + ch.country + '  ·  arremessa ' + ch.foodName, card.x + cw / 2, cy + 158, 7, '#9a9ab0', 'center');
+      text('ESPECIAL', x + cw / 2, y + 124, 7, '#7f8aa0', 'center', 700);
+      text(ch.special.name, x + cw / 2, y + 137, 10, '#ffd479', 'center', 700);
+      text(ch.special.desc, x + cw / 2, y + 149, 8.5, '#c9d6ea', 'center', 500);
+      text(ch.country + '  ·  ' + ch.foodName, x + cw / 2, y + 161, 7.5, '#7f8aa0', 'center', 500);
 
       if (ready[i]) {
-        text('PRONTO!', card.x + cw / 2, cy + 174, 11, '#ffe27a', 'center');
+        panel(x + cw / 2 - 34, y + 167, 68, 14, 7, 'rgba(255,207,77,0.16)', 'rgba(255,207,77,0.65)', 1);
+        text('PRONTO!', x + cw / 2, y + 177, 8, '#ffd479', 'center', 700);
       } else {
-        text(i === 0 ? 'W confirma' : 'CIMA confirma', card.x + cw / 2, cy + 174, 8, '#7a7a92', 'center');
+        text(i === 0 ? 'W confirma' : '↑ confirma', x + cw / 2, y + 177, 8, '#7f8aa0', 'center', 500);
       }
     }
 
-    text('VS', W / 2, 138, 14, '#ffffff', 'center');
+    // VS no meio
+    panel(W / 2 - 11, 126, 22, 18, 9, 'rgba(8,10,16,0.95)', 'rgba(255,255,255,0.16)', 1);
+    text('VS', W / 2, 139, 8, '#e2e8f0', 'center', 700);
 
-    text('P1: A / D escolhe · W confirma', W / 2 - 110, 232, 8, '#9dc4ff', 'center');
-    text('P2: ← / → escolhe · ↑ confirma', W / 2 + 110, 232, 8, '#9ce3ad', 'center');
-    if (Math.floor(tick / 30) % 2 === 0) {
-      text('ENTER começa  ·  ESC volta ao menu', W / 2, 248, 8, '#dfe4f2', 'center');
-    }
+    text('ENTER começa  ·  ESC volta ao menu', W / 2, 244, 8.5, '#8b96a9', 'center', 500);
   }
 
   function drawOver() {
-    ctx.fillStyle = 'rgba(10,10,22,0.45)';
+    ctx.fillStyle = 'rgba(6,8,14,0.55)';
     ctx.fillRect(0, 0, W, H);
 
-    text('K.O.!', W / 2, 86, 28, '#ff5a5a', 'center');
+    panel(W / 2 - 150, 62, 300, 128, 14, 'rgba(12,16,26,0.92)', 'rgba(255,255,255,0.10)', 1);
+
+    text('K.O.!', W / 2, 100, 26, '#fb7185', 'center', 800);
 
     const isWash = winner === wash;
     const winName = CHARS[winner.ch].name;
-    text(winName + ' VENCE!', W / 2, 108, 11, isWash ? '#9dc4ff' : '#9ce3ad', 'center');
+    text(winName + ' VENCE!', W / 2, 122, 11, isWash ? '#bfd4ff' : '#bbf7d0', 'center', 700);
 
     if (meeting) {
-      text('BOM JOGO!', W / 2, 158, 15, '#ffe27a', 'center');
+      text('BOM JOGO!', W / 2, 152, 14, '#ffd479', 'center', 700);
     }
 
-    if (Math.floor(tick / 30) % 2 === 0) {
-      text('PRESSIONE R PARA REVANCHE', W / 2, 234, 11, '#ffffff', 'center');
-    }
+    text('PRESSIONE R PARA REVANCHE', W / 2, 177, 9, '#cbd5e1', 'center', 600);
   }
 
   function drawHandshake() {
@@ -1833,11 +1892,10 @@
   }
 
   function drawButton(r, label, lit) {
-    ctx.fillStyle = lit ? '#5a6d93' : '#3b3b52';
-    ctx.fillRect(r.x, r.y, r.w, r.h);
-    ctx.fillStyle = '#15151f';
-    ctx.fillRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
-    text(label, r.x + r.w / 2, r.y + 12, 8, lit ? '#9fc8ff' : '#dfe4f2', 'center');
+    panel(r.x, r.y, r.w, r.h, 9,
+      lit ? 'rgba(96,165,250,0.20)' : 'rgba(14,18,28,0.80)',
+      lit ? 'rgba(147,197,253,0.65)' : 'rgba(255,255,255,0.16)', 1);
+    text(label, r.x + r.w / 2, r.y + 12, 8, lit ? '#bfdbfe' : '#dfe4f2', 'center', 600);
   }
 
   function drawButtons() {
@@ -1846,6 +1904,7 @@
   }
 
   function render() {
+    ctx.setTransform(2, 0, 0, 2, 0, 0);
     ctx.save();
     if (shake > 0) {
       ctx.translate(
@@ -1874,7 +1933,7 @@
     drawParticles();
     ctx.restore();
 
-    if (mode !== 'select') drawHUD();
+    if (mode === 'playing' || mode === 'over') drawHUD();
     if (mode === 'start') drawStart();
     if (mode === 'select') drawSelect();
     if (mode === 'over') drawOver();
