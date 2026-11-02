@@ -29,10 +29,183 @@
     image-rendering: crisp-edges;
     box-shadow: 0 0 0 4px #1c1c28, 0 0 60px rgba(0, 0, 0, .9);
   }
+
+  /* ---------------------------------------------------------- lobby online */
+  #lobby {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(4, 6, 12, .72);
+    backdrop-filter: blur(6px);
+    font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+    color: #e8eefc;
+  }
+  #lobby.hidden { display: none; }
+  #lobby .card {
+    width: min(88vw, 350px);
+    max-height: 92vh;
+    overflow-y: auto;
+    background: rgba(18, 22, 34, .97);
+    border: 1px solid rgba(255, 255, 255, .10);
+    border-radius: 18px;
+    padding: 22px 22px 18px;
+    box-shadow: 0 26px 80px rgba(0, 0, 0, .65);
+    text-align: center;
+  }
+  #lobby h2 {
+    margin: 0 0 6px;
+    font-size: 20px;
+    letter-spacing: .5px;
+  }
+  #lobby .sub {
+    margin: 0 0 18px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #93a0b8;
+  }
+  #lobby button {
+    font: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: .4px;
+    color: #0b0f19;
+    background: #ffcf4d;
+    border: 0;
+    border-radius: 10px;
+    padding: 11px 16px;
+    width: 100%;
+    cursor: pointer;
+    transition: transform .08s ease, filter .15s ease;
+  }
+  #lobby button:hover { filter: brightness(1.06); }
+  #lobby button:active { transform: translateY(1px); }
+  #lobby button.ghost {
+    background: transparent;
+    color: #aab6c9;
+    border: 1px solid rgba(255, 255, 255, .14);
+    font-weight: 600;
+    margin-top: 10px;
+  }
+  #lobby button.small {
+    width: auto;
+    padding: 8px 12px;
+    font-size: 12px;
+    background: rgba(255, 255, 255, .10);
+    color: #dbe4f2;
+    border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 8px;
+  }
+  #lobby .divider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 16px 0;
+    color: #6f7a8e;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  #lobby .divider::before,
+  #lobby .divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: rgba(255, 255, 255, .10);
+  }
+  #lobby .join {
+    display: flex;
+    gap: 8px;
+  }
+  #lobby input {
+    flex: 1;
+    min-width: 0;
+    font: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    text-align: center;
+    color: #ffffff;
+    background: rgba(0, 0, 0, .35);
+    border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 10px;
+    padding: 10px 12px;
+    outline: none;
+  }
+  #lobby input:focus { border-color: rgba(255, 207, 77, .7); }
+  #lobby .join button { width: auto; padding: 10px 14px; }
+  #roomBox {
+    margin-top: 16px;
+    padding: 14px;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, .28);
+    border: 1px solid rgba(255, 255, 255, .08);
+  }
+  #roomBox.hidden { display: none; }
+  #roomBox .label {
+    display: block;
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #7f8aa0;
+  }
+  #roomCode {
+    display: block;
+    margin: 4px 0 10px;
+    font-size: 30px;
+    font-weight: 800;
+    letter-spacing: 7px;
+    color: #ffcf4d;
+  }
+  #waiting {
+    margin: 10px 0 0;
+    font-size: 12px;
+    color: #93a0b8;
+  }
+  #lobbyStatus {
+    min-height: 16px;
+    margin: 14px 0 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: #93a0b8;
+  }
+  #lobbyStatus.err { color: #fb7185; }
+  #lobbyStatus.ok { color: #4ade80; }
 </style>
 </head>
 <body>
 <div id="stage"><canvas id="game" width="960" height="540"></canvas></div>
+
+<div id="lobby" class="hidden">
+  <div class="card">
+    <h2>JOGAR ONLINE</h2>
+    <p class="sub">Crie uma sala e mande o código para o seu amigo.<br>Um PC por jogador. Deixe a aba aberta durante a partida.</p>
+
+    <button id="btnCreate">CRIAR SALA</button>
+
+    <div id="roomBox" class="hidden">
+      <span class="label">Código da sala</span>
+      <strong id="roomCode">-----</strong>
+      <button id="btnCopy" class="small">COPIAR CÓDIGO</button>
+      <p id="waiting">Aguardando o oponente entrar…</p>
+    </div>
+
+    <div class="divider"><span>ou</span></div>
+
+    <div class="join">
+      <input id="codeInput" maxlength="6" placeholder="CÓDIGO" autocomplete="off" spellcheck="false" />
+      <button id="btnJoin">ENTRAR</button>
+    </div>
+
+    <p id="lobbyStatus"></p>
+    <button id="btnBack" class="ghost">VOLTAR AO JOGO LOCAL</button>
+  </div>
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script>
 (() => {
   'use strict';
@@ -609,7 +782,7 @@
   const CONFUSE_TIME = 180;     // 3s confuso
   const IRON_TIME = 180;        // 3s Dama de Ferro
 
-  let mode = 'start';           // start | select | playing | over
+  let mode = 'start';           // start | lobby | select | playing | over
   let winner = null;
   let wash, nap;
   let foods = [];
@@ -624,9 +797,36 @@
   let sel = [0, 1];
   let ready = [false, false];
 
+  // ---------------------------------------------------------------- online
+  let online = null;            // null (local) | 'host' | 'guest'
+  const NET = {
+    peer: null,
+    conn: null,
+    role: null,
+    code: '',
+    connected: false,
+    acc: 0,
+    hostSel: 0,
+    hostReady: false,
+    closing: false
+  };
+  const PEER_PREFIX = 'duelodecomida-';
+  const ROOM_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+  const $ = (id) => document.getElementById(id);
+  const lobbyEl = $('lobby');
+  const roomBoxEl = $('roomBox');
+  const roomCodeEl = $('roomCode');
+  const waitingEl = $('waiting');
+  const statusEl = $('lobbyStatus');
+  const codeInputEl = $('codeInput');
+  let peerLoadState = 0;         // 0 = não tentou | 1 = carregando | 2 = falhou
+  const peerWaiters = [];
+
   // botões (coordenadas do canvas)
   const BTN_MENU = { x: 10, y: 246, w: 54, h: 18 };
   const BTN_SOM = { x: W - 64, y: 246, w: 54, h: 18 };
+  const BTN_ONLINE = { x: W / 2 - 84, y: 228, w: 168, h: 22 };
 
   const keys = Object.create(null);
   const pressed = new Set();
@@ -634,6 +834,7 @@
   function newFighter(x, dir, ch) {
     return {
       x, y: FLOOR_Y, vy: 0, onGround: true, dir, ch,
+      tx: x, ty: FLOOR_Y,  // posição alvo (modo online)
       hp: 100, hurt: 0, blocks: MAX_BLOCKS, blockT: 0,
       flag: false, throwT: 0,
       flagT: 0,          // tempo segurando a bandeira (recarrega escudo)
@@ -663,6 +864,10 @@
   }
 
   function goMenu() {
+    if (online || NET.connected) cleanupNet();
+    hideLobby();
+    for (const k in keys) keys[k] = false;
+    pressed.clear();
     resetMatch();
     mode = 'start';
     ready = [false, false];
@@ -685,6 +890,450 @@
     pressed.clear();
   }
 
+  // ---------------------------------------------------------------- online
+  // O script do PeerJS vem de CDN. Se o primeiro CDN falhar, tentamos outro
+  // antes de desistir — assim o online não depende de um único fornecedor.
+  function whenPeer(cb) {
+    if (window.Peer) { cb(true); return; }
+    if (peerLoadState === 2) { cb(false); return; }
+    peerWaiters.push(cb);
+    if (peerLoadState === 1) return;
+    peerLoadState = 1;
+
+    if (!document.createElement || !document.head) {
+      peerLoadState = 2;
+      finalizePeerLoad(false);
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js';
+    script.async = true;
+    script.onload = () => finalizePeerLoad(!!window.Peer);
+    script.onerror = () => finalizePeerLoad(false);
+    document.head.appendChild(script);
+  }
+
+  function finalizePeerLoad(ok) {
+    peerLoadState = ok ? 0 : 2;
+    const list = peerWaiters.splice(0, peerWaiters.length);
+    for (let i = 0; i < list.length; i++) list[i](ok);
+  }
+
+  function genCode() {
+    let out = '';
+    for (let i = 0; i < 5; i++) {
+      out += ROOM_CHARS[(Math.random() * ROOM_CHARS.length) | 0];
+    }
+    return out;
+  }
+
+  function setStatus(msg, kind) {
+    if (!statusEl) return;
+    statusEl.textContent = msg || '';
+    statusEl.className = kind || '';
+  }
+
+  function showLobby(msg, kind) {
+    mode = 'lobby';
+    if (lobbyEl && lobbyEl.classList) lobbyEl.classList.remove('hidden');
+    if (statusEl) statusEl.className = '';
+    setStatus(msg || '', kind);
+  }
+
+  function hideLobby() {
+    if (lobbyEl && lobbyEl.classList) lobbyEl.classList.add('hidden');
+  }
+
+  function netSend(obj) {
+    if (NET.conn && NET.conn.open) {
+      try { NET.conn.send(obj); } catch (err) { /* conexão caiu */ }
+    }
+  }
+
+  function cleanupNet() {
+    NET.closing = true;
+    if (NET.conn) {
+      try { NET.conn.close(); } catch (err) { /* já fechada */ }
+    }
+    if (NET.peer) {
+      try { NET.peer.destroy(); } catch (err) { /* já destruído */ }
+    }
+    NET.peer = null;
+    NET.conn = null;
+    NET.role = null;
+    NET.connected = false;
+    NET.acc = 0;
+    NET.code = '';
+    NET.hostReady = false;
+    online = null;
+    NET.closing = false;
+  }
+
+  function openLobby() {
+    cleanupNet();
+    ready = [false, false];
+    if (roomBoxEl && roomBoxEl.classList) roomBoxEl.classList.add('hidden');
+    showLobby(window.Peer ? '' : 'Carregando modo online…');
+
+    if (!window.Peer) {
+      whenPeer((ok) => {
+        if (mode !== 'lobby') return;
+        setStatus(ok ? '' : 'Não foi possível carregar o modo online. Verifique sua internet e recarregue a página.', ok ? '' : 'err');
+      });
+    }
+  }
+
+  function createRoom() {
+    audio();
+    if (actx && actx.state === 'suspended') actx.resume();
+    if (!window.Peer) {
+      setStatus('Carregando modo online…');
+      whenPeer((ok) => {
+        if (mode !== 'lobby') return;
+        if (ok) createRoom();
+        else setStatus('Modo online indisponível (sem internet).', 'err');
+      });
+      return;
+    }
+    cleanupNet();
+    const code = genCode();
+    NET.code = code;
+    NET.role = 'host';
+    online = 'host';
+    NET.hostSel = sel[0];
+    NET.hostReady = false;
+
+    let peer;
+    try {
+      peer = new window.Peer(PEER_PREFIX + code.toLowerCase(), { debug: 0 });
+    } catch (err) {
+      setStatus('Falha ao abrir a sala. Tente novamente.', 'err');
+      return;
+    }
+    NET.peer = peer;
+
+    peer.on('open', () => {
+      if (peer !== NET.peer) return;
+      if (roomBoxEl && roomBoxEl.classList) roomBoxEl.classList.remove('hidden');
+      if (roomCodeEl) roomCodeEl.textContent = code;
+      if (waitingEl) waitingEl.textContent = 'Aguardando o oponente entrar…';
+      setStatus('Sala criada. Envie o código para o seu amigo.', 'ok');
+    });
+
+    peer.on('connection', (conn) => {
+      if (NET.connected) {
+        try { conn.close(); } catch (err) { /* sala cheia */ }
+        return;
+      }
+      attachConn(conn, 'host');
+    });
+
+    peer.on('error', (err) => {
+      const type = String((err && err.type) || '');
+      if (!NET.connected) {
+        if (type === 'unavailable-id') {
+          setStatus('Código de sala já em uso. Tente criar outra.', 'err');
+        } else if (type === 'network' || type === 'server-error') {
+          setStatus('Sem conexão com o servidor do jogo online.', 'err');
+        } else {
+          setStatus('Erro de conexão: ' + (type || 'desconhecido'), 'err');
+        }
+      }
+    });
+  }
+
+  function joinRoom(raw) {
+    audio();
+    if (actx && actx.state === 'suspended') actx.resume();
+    if (!window.Peer) {
+      setStatus('Carregando modo online…');
+      whenPeer((ok) => {
+        if (mode !== 'lobby') return;
+        if (ok) joinRoom(raw);
+        else setStatus('Modo online indisponível (sem internet).', 'err');
+      });
+      return;
+    }
+    const code = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
+    if (code.length < 5) {
+      setStatus('Digite o código de 5 letras da sala.', 'err');
+      return;
+    }
+    cleanupNet();
+    NET.code = code;
+    NET.role = 'guest';
+    online = 'guest';
+    setStatus('Conectando à sala ' + code + '…');
+
+    const myId = PEER_PREFIX + 'g-' + Math.random().toString(36).slice(2, 8);
+    let peer;
+    try {
+      peer = new window.Peer(myId, { debug: 0 });
+    } catch (err) {
+      setStatus('Falha ao conectar. Tente novamente.', 'err');
+      return;
+    }
+    NET.peer = peer;
+
+    peer.on('open', () => {
+      if (peer !== NET.peer) return;
+      const conn = peer.connect(PEER_PREFIX + code.toLowerCase(), { reliable: true, serialization: 'json' });
+      conn.on('open', () => attachConn(conn, 'guest'));
+      conn.on('error', () => {
+        if (!NET.connected) setStatus('Não foi possível entrar na sala. Confira o código.', 'err');
+      });
+    });
+
+    peer.on('error', (err) => {
+      const type = String((err && err.type) || '');
+      if (NET.connected) return;
+      if (type === 'peer-unavailable') {
+        setStatus('Sala não encontrada. Confira o código.', 'err');
+      } else if (type === 'network' || type === 'server-error') {
+        setStatus('Sem conexão com o servidor do jogo online.', 'err');
+      } else {
+        setStatus('Erro de conexão: ' + (type || 'desconhecido'), 'err');
+      }
+    });
+  }
+
+  function attachConn(conn, role) {
+    if (NET.connected) return;
+    NET.conn = conn;
+    NET.role = role;
+    NET.connected = true;
+    online = role;
+
+    conn.on('data', onNetData);
+    conn.on('close', onNetClose);
+    conn.on('error', onNetClose);
+
+    hideLobby();
+    netSend({ t: 'hello', role });
+
+    // host abre a seleção; o guest já recebe do host o personagem escolhido
+    startOnlineSelect();
+
+    if (role === 'host') {
+      netSend({ t: 'sel', i: 0, ch: sel[0], ready: ready[0] });
+    } else {
+      netSend({ t: 'sel', i: 1, ch: sel[1], ready: ready[1] });
+    }
+  }
+
+  function onNetClose() {
+    if (!online || NET.closing) return;
+    cleanupNet();
+    goMenu();
+    showLobby('O oponente desconectou.', 'err');
+  }
+
+  function startOnlineSelect() {
+    sel = [0, 1];
+    ready = [false, false];
+    NET.hostSel = 0;
+    NET.hostReady = false;
+    mode = 'select';
+    stopMusic();
+  }
+
+  function startOnlineMatch() {
+    if (online !== 'host') return;
+    resetMatch();
+    mode = 'playing';
+    audio();
+    if (actx && actx.state === 'suspended') actx.resume();
+    startMusic();
+    sfx(440, 660, 0.14, 'square', 0.05);
+    pressed.clear();
+    netSend({ t: 'start', chars: [sel[0], sel[1]] });
+  }
+
+  function sendSelection(i) {
+    netSend({ t: 'sel', i, ch: sel[i], ready: ready[i] });
+  }
+
+  function afterOnlineSelection(i) {
+    sendSelection(i);
+    if (online === 'host' && mode === 'select' && ready[0] && ready[1]) {
+      startOnlineMatch();
+    }
+  }
+
+  function onNetData(msg) {
+    if (!msg || typeof msg !== 'object') return;
+
+    if (online === 'host') {
+      if (msg.t === 'key') {
+        const code = String(msg.code || '');
+        // o convidado só controla as setas (P2)
+        if (code.indexOf('Arrow') !== 0) return;
+        if (msg.down) {
+          if (!keys[code]) pressed.add(code);
+          keys[code] = true;
+        } else {
+          keys[code] = false;
+        }
+      } else if (msg.t === 'sel' && msg.i === 1) {
+        sel[1] = Math.max(0, Math.min(CHARS.length - 1, msg.ch | 0));
+        ready[1] = !!msg.ready;
+        if (mode === 'select' && ready[0] && ready[1]) startOnlineMatch();
+      } else if (msg.t === 'rematch') {
+        if (mode === 'over') startOnlineMatch();
+      }
+    } else if (online === 'guest') {
+      if (msg.t === 'sel' && msg.i === 0) {
+        NET.hostSel = Math.max(0, Math.min(CHARS.length - 1, msg.ch | 0));
+        NET.hostReady = !!msg.ready;
+        if (mode === 'select') { sel[0] = NET.hostSel; ready[0] = NET.hostReady; }
+      } else if (msg.t === 'start') {
+        const chars = Array.isArray(msg.chars) ? msg.chars : [0, 1];
+        sel = [chars[0] | 0, chars[1] | 0];
+        resetMatch();
+        mode = 'playing';
+        audio();
+        if (actx && actx.state === 'suspended') actx.resume();
+        startMusic();
+        pressed.clear();
+      } else if (msg.t === 'st') {
+        applyState(msg);
+      }
+    }
+  }
+
+  function packF(p) {
+    return [
+      Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10,
+      p.hp, p.blocks, Math.round(p.blockT),
+      p.flag ? 1 : 0, Math.round(p.flagT),
+      Math.round(p.freeze), Math.round(p.confuse), Math.round(p.iron), Math.round(p.gT),
+      p.pending || '', Math.round(p.incoming),
+      Math.round(p.shoutT), p.shoutText, Math.round(p.hurt)
+    ];
+  }
+
+  function packFood(f) {
+    return [
+      Math.round(f.x), Math.round(f.y), Math.round(f.vx * 100) / 100,
+      f.owner, f.ch == null ? 0 : f.ch, Math.round(f.deflectT), Math.round(f.bob * 100) / 100
+    ];
+  }
+
+  function sendState() {
+    netSend({
+      t: 'st',
+      m: mode,
+      w: packF(wash),
+      n: packF(nap),
+      f: foods.map(packFood),
+      mt: meeting ? 1 : 0,
+      win: winner ? (winner === wash ? 0 : 1) : -1
+    });
+  }
+
+  function applyF(p, a) {
+    if (!a) return;
+    const before = p.hp;
+    p.tx = a[0];
+    p.ty = a[1];
+    p.hp = a[2];
+    p.blocks = a[3];
+    p.blockT = a[4];
+    p.flag = !!a[5];
+    p.flagT = a[6];
+    p.freeze = a[7];
+    p.confuse = a[8];
+    p.iron = a[9];
+    p.gT = a[10];
+    p.pending = a[11] || null;
+    p.incoming = a[12];
+    p.shoutT = a[13];
+    p.shoutText = a[14];
+    p.hurt = a[15];
+    if (p.hp < before) {
+      shake = Math.max(shake, 4);
+      burst(p.tx + BODY_W / 2, p.ty + BODY_H / 2, ['#ffffff', '#ffe27a', '#ffb347'], 8);
+    }
+  }
+
+  function applyState(s) {
+    applyF(wash, s.w);
+    applyF(nap, s.n);
+
+    foods = (s.f || []).map((a) => {
+      const kind = Math.max(0, Math.min(CHARS.length - 1, a[4] | 0));
+      return {
+        x: a[0], y: a[1], w: FOOD_W, h: FOOD_H,
+        vx: a[2], owner: a[3], ch: kind,
+        grid: CHARS[kind].food, pal: CHARS[kind].foodPal,
+        bob: a[6] || 0, dustT: 7, deflectT: a[5] || 0
+      };
+    });
+
+    meeting = !!s.mt;
+    if (s.win >= 0) winner = s.win === 0 ? wash : nap;
+
+    if (s.m === 'over' && mode === 'playing') {
+      mode = 'over';
+      endT = 0;
+      const loser = s.win === 0 ? nap : wash;
+      burst(loser.x + BODY_W / 2, loser.y + BODY_H / 2, ['#ffffff', '#ffe27a', '#fb7185'], 20);
+      shake = Math.max(shake, 8);
+      sfx(340, 50, 0.6, 'square', 0.07);
+    } else if (s.m === 'playing' && mode !== 'playing') {
+      mode = 'playing';
+    }
+  }
+
+  function smoothFighter(p, dt) {
+    if (p.tx == null) return;
+    const k = Math.min(1, 0.5 * dt);
+    p.x += (p.tx - p.x) * k;
+    p.y += (p.ty - p.y) * k;
+    if (Math.abs(p.tx - p.x) < 0.05) p.x = p.tx;
+    if (Math.abs(p.ty - p.y) < 0.05) p.y = p.ty;
+  }
+
+  function closeLobby() {
+    cleanupNet();
+    goMenu();
+  }
+
+  // botões do lobby
+  if (lobbyEl) {
+    const btnCreate = $('btnCreate');
+    const btnJoin = $('btnJoin');
+    const btnBack = $('btnBack');
+    const btnCopy = $('btnCopy');
+
+    if (btnCreate) btnCreate.addEventListener('click', createRoom);
+    if (btnJoin) btnJoin.addEventListener('click', () => joinRoom(codeInputEl && codeInputEl.value));
+    if (btnBack) btnBack.addEventListener('click', closeLobby);
+    if (btnCopy) {
+      btnCopy.addEventListener('click', () => {
+        if (!NET.code) return;
+        const txt = NET.code;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(txt).then(
+            () => setStatus('Código copiado!', 'ok'),
+            () => setStatus('Não foi possível copiar. Envie o código: ' + txt, 'err')
+          );
+        } else {
+          setStatus('Envie o código: ' + txt, 'ok');
+        }
+      });
+    }
+    if (codeInputEl) {
+      codeInputEl.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          joinRoom(codeInputEl.value);
+        }
+      });
+    }
+  }
+
   function launchFood(p) {
     const ch = CHARS[p.ch];
     const isWash = p.dir > 0;
@@ -695,6 +1344,7 @@
       w: FOOD_W, h: FOOD_H,
       vx: p.dir * speed,
       owner: p.dir,
+      ch: p.ch,
       grid: ch.food,
       pal: ch.foodPal,
       bob: Math.random() * 6.28,
@@ -1058,13 +1708,21 @@
 
     updateParticles(dt);
 
-    if (mode === 'playing') {
+    if (online === 'guest') {
+      // o host simula a partida; aqui só suavizamos o que chega pela rede
+      smoothFighter(wash, dt);
+      smoothFighter(nap, dt);
+    } else if (mode === 'playing') {
       updatePlayer(wash, dt);
       updatePlayer(nap, dt);
       updateFoods(dt);
       if (mode === 'over') foods = [];
     } else if (mode === 'over') {
       updateEnd(dt);
+    }
+
+    if (online === 'host' && (mode === 'playing' || mode === 'over')) {
+      sendState();
     }
 
     pressed.clear();
@@ -1782,12 +2440,20 @@
     }
 
     text('Bandeira erguida por 3s = +1 escudo  ·  especial custa 3 escudos',
-      W / 2, 208, 8, '#8b96a9', 'center', 500);
+      W / 2, 204, 8, '#8b96a9', 'center', 500);
     text('O escudo devolve a comida — só gasta quando acerta',
-      W / 2, 220, 8, '#6f7a8e', 'center', 500);
+      W / 2, 214, 8, '#6f7a8e', 'center', 500);
 
-    panel(W / 2 - 82, 231, 164, 22, 11, 'rgba(255,207,77,0.14)', 'rgba(255,207,77,0.55)', 1.2);
-    text('PRESSIONE QUALQUER TECLA', W / 2, 246, 9.5, '#ffd479', 'center', 700);
+    text('PRESSIONE QUALQUER TECLA', W / 2, 227, 8.5, '#ffd479', 'center', 700);
+
+    panel(BTN_ONLINE.x, BTN_ONLINE.y, BTN_ONLINE.w, BTN_ONLINE.h, 11,
+      'rgba(96,165,250,0.16)', 'rgba(147,197,253,0.60)', 1.2);
+    text('JOGAR ONLINE', BTN_ONLINE.x + BTN_ONLINE.w / 2 - 9, BTN_ONLINE.y + 14.5,
+      9.5, '#dbeafe', 'center', 700);
+    text('O', BTN_ONLINE.x + BTN_ONLINE.w - 18, BTN_ONLINE.y + 14.5,
+      8.5, '#93c5fd', 'center', 700);
+
+    text('no mesmo PC ou online com código de sala', W / 2, 266, 7.5, '#7f8aa0', 'center', 500);
   }
 
   function drawSelect() {
@@ -1795,11 +2461,22 @@
     ctx.fillRect(0, 0, W, H);
 
     text('ESCOLHA OS LUTADORES', W / 2, 25, 18, '#ffffff', 'center', 800);
-    text('P1: A/D escolhe · W confirma        P2: ←/→ escolhe · ↑ confirma',
-      W / 2, 39, 8, '#93a0b8', 'center', 500);
+    if (online) {
+      text('ONLINE', W - 16, 20, 7, '#60a5fa', 'right', 700);
+      if (NET.code) text('SALA ' + NET.code, W - 16, 29, 6.5, '#7f8aa0', 'right', 600);
+      text(online === 'host'
+        ? 'Você escolhe o P1 (WASD) · seu oponente escolhe o P2 (setas)'
+        : 'Você escolhe o P2 (setas) · o host escolhe o P1 (WASD)',
+        W / 2, 39, 8, '#93a0b8', 'center', 500);
+    } else {
+      text('P1: A/D escolhe · W confirma        P2: ←/→ escolhe · ↑ confirma',
+        W / 2, 39, 8, '#93a0b8', 'center', 500);
+    }
 
     const accents = ['#6f9cff', '#4ade80'];
-    const tags = ['P1 · WASD', 'P2 · SETAS'];
+    const tags = online === 'host' ? ['VOCÊ · WASD', 'OPONENTE · SETAS']
+      : online === 'guest' ? ['OPONENTE · WASD', 'VOCÊ · SETAS']
+        : ['P1 · WASD', 'P2 · SETAS'];
 
     for (let i = 0; i < 2; i++) {
       const x = i === 0 ? 16 : 248;
@@ -1843,7 +2520,19 @@
     panel(W / 2 - 11, 126, 22, 18, 9, 'rgba(8,10,16,0.95)', 'rgba(255,255,255,0.16)', 1);
     text('VS', W / 2, 139, 8, '#e2e8f0', 'center', 700);
 
-    text('ENTER começa  ·  ESC volta ao menu', W / 2, 244, 8.5, '#8b96a9', 'center', 500);
+    if (online === 'host') {
+      text(ready[0] && ready[1]
+        ? 'Começando a partida…'
+        : 'Os dois precisam confirmar  ·  ESC sai da sala',
+        W / 2, 244, 8.5, '#8b96a9', 'center', 500);
+    } else if (online === 'guest') {
+      text(ready[0] && ready[1]
+        ? 'Aguardando o host iniciar…'
+        : 'Confirme com ↑ quando estiver pronto  ·  ESC sai da sala',
+        W / 2, 244, 8.5, '#8b96a9', 'center', 500);
+    } else {
+      text('ENTER começa  ·  ESC volta ao menu', W / 2, 244, 8.5, '#8b96a9', 'center', 500);
+    }
   }
 
   function drawOver() {
@@ -1863,6 +2552,11 @@
     }
 
     text('PRESSIONE R PARA REVANCHE', W / 2, 177, 9, '#cbd5e1', 'center', 600);
+
+    if (online) {
+      text(online === 'host' ? 'online: você inicia a revanche' : 'online: seu pedido vai para o host',
+        W / 2, 186, 7, '#7f8aa0', 'center', 500);
+    }
   }
 
   function drawHandshake() {
@@ -1934,7 +2628,7 @@
     ctx.restore();
 
     if (mode === 'playing' || mode === 'over') drawHUD();
-    if (mode === 'start') drawStart();
+    if (mode === 'start' || mode === 'lobby') drawStart();
     if (mode === 'select') drawSelect();
     if (mode === 'over') drawOver();
     drawButtons();
@@ -1952,6 +2646,7 @@
     const x = (e.clientX - r.left) * (W / r.width);
     const y = (e.clientY - r.top) * (H / r.height);
 
+    if (mode === 'start' && insideRect(x, y, BTN_ONLINE)) { openLobby(); return; }
     if (insideRect(x, y, BTN_MENU)) { goMenu(); return; }
     if (insideRect(x, y, BTN_SOM)) { setMuted(!muted); }
   });
@@ -1965,20 +2660,66 @@
     }
 
     if (e.code === 'Escape' && !e.repeat) {
-      if (mode !== 'start') goMenu();
+      if (mode === 'lobby') {
+        closeLobby();
+      } else if (mode !== 'start') {
+        goMenu();
+      }
       return;
     }
+
+    if (mode === 'lobby') return;
+
+    // o host não controla o P2: as setas pertencem ao convidado
+    if (online === 'host' && e.code.indexOf('Arrow') === 0) return;
 
     if (!e.repeat) pressed.add(e.code);
     keys[e.code] = true;
 
     if (mode === 'start') {
+      if (e.code === 'KeyO') {
+        openLobby();
+        return;
+      }
       goSelect();
       return;
     }
 
     if (mode === 'select') {
       if (e.repeat) return;
+
+      // online: cada jogador só mexe no próprio lutador
+      if (online === 'host') {
+        if (e.code === 'KeyA' && !ready[0]) {
+          sel[0] = (sel[0] + CHARS.length - 1) % CHARS.length;
+          sfx(420, 520, 0.06, 'square', 0.035);
+        } else if (e.code === 'KeyD' && !ready[0]) {
+          sel[0] = (sel[0] + 1) % CHARS.length;
+          sfx(520, 620, 0.06, 'square', 0.035);
+        } else if (e.code === 'KeyW') {
+          ready[0] = !ready[0];
+          sfx(ready[0] ? 700 : 340, ready[0] ? 900 : 260, 0.08, 'square', 0.04);
+        }
+        afterOnlineSelection(0);
+        pressed.clear();
+        return;
+      }
+
+      if (online === 'guest') {
+        if (e.code === 'ArrowLeft' && !ready[1]) {
+          sel[1] = (sel[1] + CHARS.length - 1) % CHARS.length;
+          sfx(420, 520, 0.06, 'square', 0.035);
+        } else if (e.code === 'ArrowRight' && !ready[1]) {
+          sel[1] = (sel[1] + 1) % CHARS.length;
+          sfx(520, 620, 0.06, 'square', 0.035);
+        } else if (e.code === 'ArrowUp') {
+          ready[1] = !ready[1];
+          sfx(ready[1] ? 700 : 340, ready[1] ? 900 : 260, 0.08, 'square', 0.04);
+        }
+        afterOnlineSelection(1);
+        pressed.clear();
+        return;
+      }
 
       // P1
       if (e.code === 'KeyA' && !ready[0]) {
@@ -2015,17 +2756,39 @@
       return;
     }
 
+    if (online === 'guest' && mode === 'playing' && !e.repeat && e.code.indexOf('Arrow') === 0) {
+      netSend({ t: 'key', code: e.code, down: true });
+    }
+
     if (mode === 'over' && (e.code === 'KeyR' || e.code === 'Enter' || e.code === 'Space')) {
-      startGame();
+      if (online === 'host') {
+        startOnlineMatch();
+      } else if (online === 'guest') {
+        netSend({ t: 'rematch' });
+      } else {
+        startGame();
+      }
     }
   });
 
   window.addEventListener('keyup', (e) => {
+    // no host, as setas são do convidado (inclusive o keyup local)
+    if (online === 'host' && e.code.indexOf('Arrow') === 0) return;
     keys[e.code] = false;
+    if (online === 'guest' && e.code.indexOf('Arrow') === 0) {
+      netSend({ t: 'key', code: e.code, down: false });
+    }
   });
 
   window.addEventListener('blur', () => {
-    for (const k in keys) keys[k] = false;
+    for (const k in keys) {
+      // o host não deve apagar as teclas que o convidado está segurando
+      if (online === 'host' && k.indexOf('Arrow') === 0) continue;
+      if (keys[k] && online === 'guest' && k.indexOf('Arrow') === 0) {
+        netSend({ t: 'key', code: k, down: false });
+      }
+      keys[k] = false;
+    }
   });
 
   // ---------------------------------------------------------------- loop
