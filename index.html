@@ -205,7 +205,6 @@
   </div>
 </div>
 
-<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script>
 (() => {
   'use strict';
@@ -802,12 +801,18 @@
   const NET = {
     peer: null,
     conn: null,
+    pending: null,
     role: null,
     code: '',
     connected: false,
+    transport: null,      // null | 'peer' (WebRTC) | 'mqtt' (relay)
+    relay: null,
     acc: 0,
     hostSel: 0,
     hostReady: false,
+    roomReady: false,
+    hbAt: 0,
+    lastRx: 0,
     closing: false
   };
   const PEER_PREFIX = 'duelodecomida-';
@@ -891,33 +896,87 @@
   }
 
   // ---------------------------------------------------------------- online
-  // O script do PeerJS vem de CDN. Se o primeiro CDN falhar, tentamos outro
-  // antes de desistir — assim o online não depende de um único fornecedor.
-  function whenPeer(cb) {
-    if (window.Peer) { cb(true); return; }
-    if (peerLoadState === 2) { cb(false); return; }
-    peerWaiters.push(cb);
-    if (peerLoadState === 1) return;
-    peerLoadState = 1;
+  // A partida online tem dois caminhos:
+  //   1. WebRTC direto (PeerJS) — mais rápido quando a rede permite.
+  //   2. Relay por MQTT público — entra quando o P2P não abre, então NAT
+  //      restritivo, CGNAT, VPN e redes corporativas não travam o jogo.
+  // O relay usa só WebSocket (porta 443), sem conta e sem servidor próprio.
 
-    if (!document.createElement || !document.head) {
-      peerLoadState = 2;
-      finalizePeerLoad(false);
-      return;
-    }
+  const ICE_SERVERS = [
+    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+    { urls: 'stun:stun.cloudflare.com:3478' }
+  ];
 
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js';
-    script.async = true;
-    script.onload = () => finalizePeerLoad(!!window.Peer);
-    script.onerror = () => finalizePeerLoad(false);
-    document.head.appendChild(script);
+  const RELAY_BROKERS = [
+    'wss://broker.emqx.io:8084/mqtt',
+    'wss://broker.hivemq.com:8884/mqtt'
+  ];
+  const RELAY_TOPIC = 'duelodecomida/v1/';
+  const RELAY_HELLO_DELAY = 5000;   // espera o P2P antes de acordar o relay
+  const RELAY_JOIN_LIMIT = 20000;   // desiste de entrar depois disso
+  const LINK_LIMIT = 25000;
+  const PEER_LOAD_LIMIT = 9000;
+
+  let peerLibState = 0;             // 0 = pode tentar | 1 = carregando | 2 = falhou há pouco
+  let peerLibFailedAt = 0;
+  const peerLibWaiters = [];
+  let netTimers = Object.create(null);
+
+  function setNetTimer(name, ms, fn) {
+    clearNetTimer(name);
+    netTimers[name] = setTimeout(() => { delete netTimers[name]; fn(); }, ms);
+  }
+  function clearNetTimer(name) {
+    if (netTimers[name]) { clearTimeout(netTimers[name]); delete netTimers[name]; }
+  }
+  function clearNetTimers() {
+    for (const k in netTimers) clearTimeout(netTimers[k]);
+    netTimers = Object.create(null);
   }
 
-  function finalizePeerLoad(ok) {
-    peerLoadState = ok ? 0 : 2;
-    const list = peerWaiters.splice(0, peerWaiters.length);
-    for (let i = 0; i < list.length; i++) list[i](ok);
+  // PeerJS é opcional: se o CDN falhar, o relay por MQTT ainda funciona.
+  function ensurePeerLib(cb) {
+    if (window.Peer) { cb(true); return; }
+    if (peerLibState === 2) {
+      if (Date.now() - peerLibFailedAt < 30000) { cb(false); return; }
+      peerLibState = 0;
+    }
+    peerLibWaiters.push(cb);
+    if (peerLibState === 1) return;
+    peerLibState = 1;
+
+    const done = (ok) => {
+      peerLibState = ok ? 0 : 2;
+      if (!ok) peerLibFailedAt = Date.now();
+      const list = peerLibWaiters.splice(0, peerLibWaiters.length);
+      for (let i = 0; i < list.length; i++) list[i](ok);
+    };
+
+    const sources = [
+      'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js',
+      'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js'
+    ];
+    let idx = 0;
+    const next = () => {
+      if (idx >= sources.length) { done(false); return; }
+      const src = sources[idx++];
+      let settled = false;
+      const timer = setTimeout(() => finish(false), PEER_LOAD_LIMIT);
+      const finish = (ok) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (ok && window.Peer) done(true);
+        else next();
+      };
+      const script = document.createElement('script');
+      script.src = src;
+      script.async = true;
+      script.onload = () => finish(!!window.Peer);
+      script.onerror = () => finish(false);
+      document.head.appendChild(script);
+    };
+    next();
   }
 
   function genCode() {
@@ -945,7 +1004,322 @@
     if (lobbyEl && lobbyEl.classList) lobbyEl.classList.add('hidden');
   }
 
+  // ------------------------------------------------------- relay MQTT mínimo
+  function relayCat(parts) {
+    let size = 0;
+    for (let i = 0; i < parts.length; i++) size += parts[i].length;
+    const out = new Uint8Array(size);
+    let off = 0;
+    for (let i = 0; i < parts.length; i++) { out.set(parts[i], off); off += parts[i].length; }
+    return out;
+  }
+  function relayLenBytes(n) {
+    const out = [];
+    let x = n;
+    do {
+      let b = x & 127;
+      x = Math.floor(x / 128);
+      if (x > 0) b |= 128;
+      out.push(b);
+    } while (x > 0);
+    return new Uint8Array(out);
+  }
+  function relayField(str) {
+    const bytes = new TextEncoder().encode(str);
+    const out = new Uint8Array(2 + bytes.length);
+    out[0] = bytes.length >> 8;
+    out[1] = bytes.length & 255;
+    out.set(bytes, 2);
+    return out;
+  }
+  function relayPacket(type, parts) {
+    const body = relayCat(parts);
+    return relayCat([new Uint8Array([type]), relayLenBytes(body.length), body]);
+  }
+  function relayConnectPacket(clientId) {
+    return relayPacket(0x10, [
+      relayField('MQTT'),
+      new Uint8Array([4, 0x02, 0, 30]),   // nível 4, clean session, keepalive 30s
+      relayField(clientId)
+    ]);
+  }
+  function relaySubPacket(topic) {
+    return relayPacket(0x82, [
+      new Uint8Array([0, 1]),             // packet id 1
+      relayField(topic),
+      new Uint8Array([0])                 // QoS 0
+    ]);
+  }
+  function relayPubPacket(topic, text) {
+    return relayPacket(0x30, [relayField(topic), new TextEncoder().encode(text)]);
+  }
+  function relayParse(buf) {
+    if (buf.length < 2) return null;
+    let mul = 1;
+    let len = 0;
+    let i = 1;
+    let b;
+    do {
+      if (i >= buf.length) return null;
+      b = buf[i++];
+      len += (b & 127) * mul;
+      mul *= 128;
+    } while (b & 128);
+    if (buf.length < i + len) return null;
+    return { type: buf[0] >> 4, body: buf.subarray(i, i + len), rest: buf.subarray(i + len) };
+  }
+  function relayReadPublish(body) {
+    const n = (body[0] << 8) | body[1];
+    const decoder = new TextDecoder();
+    return {
+      topic: decoder.decode(body.subarray(2, 2 + n)),
+      text: decoder.decode(body.subarray(2 + n))
+    };
+  }
+
+  function relayCloseSock(s) {
+    s.dead = true;
+    s.ready = false;
+    if (s.timer) { clearTimeout(s.timer); s.timer = null; }
+    if (s.ping) { clearInterval(s.ping); s.ping = null; }
+    if (s.ws) {
+      try { s.ws.close(); } catch (e) { /* já fechou */ }
+      s.ws = null;
+    }
+  }
+
+  function relayStop() {
+    const r = NET.relay;
+    NET.relay = null;
+    if (!r) return;
+    if (r.joinTimer) { clearTimeout(r.joinTimer); r.joinTimer = null; }
+    if (r.helloRepeat) { clearInterval(r.helloRepeat); r.helloRepeat = null; }
+    for (let i = 0; i < r.socks.length; i++) relayCloseSock(r.socks[i]);
+    r.socks = [];
+    r.active = null;
+  }
+
+  function relayStart(role, code) {
+    relayStop();
+    const r = {
+      role, code,
+      topic: RELAY_TOPIC + code.toLowerCase(),
+      socks: [],
+      active: null,
+      due: false,
+      kicked: false,
+      helloRepeat: null,
+      joinTimer: null
+    };
+    NET.relay = r;
+    for (let i = 0; i < RELAY_BROKERS.length; i++) relayOpen(r, i);
+    return r;
+  }
+
+  function relayOpen(r, idx) {
+    const s = { idx, ws: null, ready: false, dead: false, buf: new Uint8Array(0), timer: null, ping: null };
+    r.socks.push(s);
+    let ws;
+    try { ws = new WebSocket(RELAY_BROKERS[idx], ['mqtt']); }
+    catch (e) { s.dead = true; return; }
+    ws.binaryType = 'arraybuffer';
+    s.ws = ws;
+
+    s.timer = setTimeout(() => {
+      if (!s.ready) relayCloseSock(s);
+    }, 8000);
+
+    ws.addEventListener('open', () => {
+      if (NET.relay !== r || s.dead) return;
+      const id = 'duelo_' + r.role + '_' + Math.random().toString(36).slice(2, 10);
+      try { ws.send(relayConnectPacket(id)); } catch (e) { /* caiu */ }
+    });
+
+    ws.addEventListener('message', (ev) => {
+      if (NET.relay !== r || s.dead) return;
+      s.buf = relayCat([s.buf, new Uint8Array(ev.data)]);
+      let p;
+      while ((p = relayParse(s.buf))) {
+        s.buf = p.rest;
+        relayHandle(r, s, p.type, p.body);
+      }
+    });
+
+    ws.addEventListener('close', () => {
+      const wasActive = NET.relay === r && r.active === s;
+      s.ready = false;
+      if (s.timer) { clearTimeout(s.timer); s.timer = null; }
+      if (s.ping) { clearInterval(s.ping); s.ping = null; }
+      s.dead = true;
+      if (wasActive && NET.connected) onNetClose();
+    });
+
+    ws.addEventListener('error', () => { /* o close vem em seguida */ });
+  }
+
+  function relayHandle(r, s, type, body) {
+    if (type === 2) {                       // CONNACK
+      if (body.length < 2 || body[1] !== 0) { relayCloseSock(s); return; }
+      try { s.ws.send(relaySubPacket(r.topic)); } catch (e) { /* caiu */ }
+      return;
+    }
+    if (type === 9) {                       // SUBACK
+      if (s.ready) return;
+      s.ready = true;
+      if (s.timer) { clearTimeout(s.timer); s.timer = null; }
+      s.ping = setInterval(() => {
+        if (s.ws && s.ws.readyState === 1) {
+          try { s.ws.send(new Uint8Array([0xC0, 0])); } catch (e) { /* caiu */ }
+        }
+      }, 20000);
+      if (r.role === 'host') markRoomReady();
+      if (r.due) relayFlushHello(r);
+      return;
+    }
+    if (type === 3) {                       // PUBLISH
+      const p = relayReadPublish(body);
+      if (p.topic !== r.topic) return;
+      let msg;
+      try { msg = JSON.parse(p.text); } catch (e) { return; }
+      relayOnMsg(r, s, msg);
+    }
+  }
+
+  function relayFlushHello(r) {
+    if (NET.relay !== r || NET.connected || !r.due) return;
+    let sent = false;
+    for (let i = 0; i < r.socks.length; i++) {
+      const s = r.socks[i];
+      if (s.ready && s.ws && s.ws.readyState === 1) {
+        try {
+          s.ws.send(relayPubPacket(r.topic, JSON.stringify({ t: 'hello', from: r.role, role: r.role })));
+          sent = true;
+        } catch (e) { /* caiu */ }
+      }
+    }
+    if (sent) r.kicked = true;
+  }
+
+  function relayBeginKick(r) {
+    if (!r || NET.relay !== r || NET.connected) return;
+    // Uma vez que o convidado escolhe o relay, a conexão direta é descartada
+    // para os dois lados não ficarem em transportes diferentes.
+    if (r.role === 'guest' && NET.peer) {
+      const p = NET.peer;
+      NET.peer = null;
+      NET.pending = null;
+      NET.conn = null;
+      try { p.destroy(); } catch (e) { /* já caiu */ }
+    }
+    r.due = true;
+    relayFlushHello(r);
+    if (!r.helloRepeat) {
+      r.helloRepeat = setInterval(() => {
+        if (NET.relay !== r || NET.connected) {
+          clearInterval(r.helloRepeat);
+          r.helloRepeat = null;
+          return;
+        }
+        relayFlushHello(r);
+      }, 2500);
+    }
+  }
+
+  function relaySend(obj) {
+    const r = NET.relay;
+    if (!r || !r.active || NET.transport !== 'mqtt') return false;
+    const s = r.active;
+    if (!s.ws || s.ws.readyState !== 1 || !s.ready) return false;
+    obj.from = r.role;
+    try { s.ws.send(relayPubPacket(r.topic, JSON.stringify(obj))); return true; }
+    catch (e) { return false; }
+  }
+
+  function relayAttach(r, s) {
+    if (NET.relay !== r || NET.connected) return;
+    clearNetTimers();
+    if (r.helloRepeat) { clearInterval(r.helloRepeat); r.helloRepeat = null; }
+    r.active = s;
+
+    NET.conn = null;                  // conexão direta pendente é descartada
+    if (NET.peer) {
+      try { NET.peer.destroy(); } catch (e) { /* já caiu */ }
+      NET.peer = null;
+    }
+    NET.pending = null;
+
+    NET.transport = 'mqtt';
+    NET.connected = true;
+    NET.role = r.role;
+    online = r.role;
+    NET.lastRx = performance.now();
+    NET.hbAt = NET.lastRx;
+
+    hideLobby();
+    startOnlineSelect();
+    relaySend({ t: 'hello', role: r.role });
+    relaySend({
+      t: 'sel',
+      i: r.role === 'host' ? 0 : 1,
+      ch: sel[r.role === 'host' ? 0 : 1],
+      ready: ready[r.role === 'host' ? 0 : 1]
+    });
+
+    for (let i = 0; i < r.socks.length; i++) {
+      if (r.socks[i] !== s) relayCloseSock(r.socks[i]);
+    }
+  }
+
+  function relayTakeover(r, s) {
+    if (NET.relay !== r) return;
+    if (NET.peer) {
+      const p = NET.peer;
+      NET.peer = null;
+      try { p.destroy(); } catch (e) { /* já caiu */ }
+    }
+    NET.conn = null;
+    NET.pending = null;
+    NET.connected = false;
+    NET.transport = null;
+    relayAttach(r, s);
+  }
+
+  function relayOnMsg(r, s, msg) {
+    if (!msg || typeof msg !== 'object') return;
+    if (msg.from === r.role) return;
+
+    if (msg.t === 'bye') {
+      if (NET.connected && NET.transport === 'mqtt') onNetClose();
+      return;
+    }
+
+    if (!NET.connected) {
+      if (msg.t === 'hello') relayAttach(r, s);
+      return;
+    }
+
+    if (msg.t === 'hello') {
+      // Se o outro lado ainda não recebeu o canal direto, assume o relay.
+      if (NET.transport === 'peer' && (mode === 'select' || mode === 'lobby')) {
+        relayTakeover(r, s);
+      }
+      return;
+    }
+
+    if (NET.transport === 'peer') return;
+    if (r.active === s) onNetData(msg);
+  }
+
+  // ------------------------------------------------------------ sala / peer
+  function markRoomReady() {
+    if (NET.roomReady || NET.connected) return;
+    NET.roomReady = true;
+    clearNetTimer('room');
+    setStatus('Sala criada. Envie o código para o seu amigo.', 'ok');
+  }
+
   function netSend(obj) {
+    if (NET.transport === 'mqtt') { relaySend(obj); return; }
     if (NET.conn && NET.conn.open) {
       try { NET.conn.send(obj); } catch (err) { /* conexão caiu */ }
     }
@@ -953,6 +1327,11 @@
 
   function cleanupNet() {
     NET.closing = true;
+    clearNetTimers();
+    if (NET.transport === 'mqtt' && NET.relay && NET.relay.active) {
+      relaySend({ t: 'bye' });
+    }
+    relayStop();
     if (NET.conn) {
       try { NET.conn.close(); } catch (err) { /* já fechada */ }
     }
@@ -961,11 +1340,16 @@
     }
     NET.peer = null;
     NET.conn = null;
+    NET.pending = null;
     NET.role = null;
     NET.connected = false;
+    NET.transport = null;
     NET.acc = 0;
     NET.code = '';
     NET.hostReady = false;
+    NET.roomReady = false;
+    NET.hbAt = 0;
+    NET.lastRx = 0;
     online = null;
     NET.closing = false;
   }
@@ -974,51 +1358,25 @@
     cleanupNet();
     ready = [false, false];
     if (roomBoxEl && roomBoxEl.classList) roomBoxEl.classList.add('hidden');
-    showLobby(window.Peer ? '' : 'Carregando modo online…');
-
-    if (!window.Peer) {
-      whenPeer((ok) => {
-        if (mode !== 'lobby') return;
-        setStatus(ok ? '' : 'Não foi possível carregar o modo online. Verifique sua internet e recarregue a página.', ok ? '' : 'err');
-      });
-    }
+    showLobby('');
+    ensurePeerLib(() => { /* aquece o PeerJS em segundo plano */ });
   }
 
-  function createRoom() {
-    audio();
-    if (actx && actx.state === 'suspended') actx.resume();
-    if (!window.Peer) {
-      setStatus('Carregando modo online…');
-      whenPeer((ok) => {
-        if (mode !== 'lobby') return;
-        if (ok) createRoom();
-        else setStatus('Modo online indisponível (sem internet).', 'err');
-      });
-      return;
-    }
-    cleanupNet();
-    const code = genCode();
-    NET.code = code;
-    NET.role = 'host';
-    online = 'host';
-    NET.hostSel = sel[0];
-    NET.hostReady = false;
-
+  function createHostPeer(code) {
     let peer;
     try {
-      peer = new window.Peer(PEER_PREFIX + code.toLowerCase(), { debug: 0 });
+      peer = new window.Peer(PEER_PREFIX + code.toLowerCase(), {
+        debug: 0,
+        config: { iceServers: ICE_SERVERS }
+      });
     } catch (err) {
-      setStatus('Falha ao abrir a sala. Tente novamente.', 'err');
       return;
     }
     NET.peer = peer;
 
     peer.on('open', () => {
       if (peer !== NET.peer) return;
-      if (roomBoxEl && roomBoxEl.classList) roomBoxEl.classList.remove('hidden');
-      if (roomCodeEl) roomCodeEl.textContent = code;
-      if (waitingEl) waitingEl.textContent = 'Aguardando o oponente entrar…';
-      setStatus('Sala criada. Envie o código para o seu amigo.', 'ok');
+      markRoomReady();
     });
 
     peer.on('connection', (conn) => {
@@ -1030,31 +1388,112 @@
     });
 
     peer.on('error', (err) => {
+      if (peer !== NET.peer || NET.connected) return;
       const type = String((err && err.type) || '');
-      if (!NET.connected) {
-        if (type === 'unavailable-id') {
-          setStatus('Código de sala já em uso. Tente criar outra.', 'err');
-        } else if (type === 'network' || type === 'server-error') {
-          setStatus('Sem conexão com o servidor do jogo online.', 'err');
-        } else {
-          setStatus('Erro de conexão: ' + (type || 'desconhecido'), 'err');
-        }
+      if (type === 'unavailable-id') {
+        setStatus('Código de sala já em uso. Crie outra sala.', 'err');
       }
+      // erros de servidor não assustam: o relay ainda pode conectar
+    });
+
+    peer.on('disconnected', () => {
+      if (peer !== NET.peer) return;
+      try { peer.reconnect(); } catch (err) { /* tenta de novo depois */ }
+    });
+  }
+
+  function createRoom() {
+    audio();
+    if (actx && actx.state === 'suspended') actx.resume();
+    cleanupNet();
+    const code = genCode();
+    NET.code = code;
+    NET.role = 'host';
+    online = 'host';
+    NET.hostSel = sel[0];
+    NET.hostReady = false;
+    NET.roomReady = false;
+
+    if (roomBoxEl && roomBoxEl.classList) roomBoxEl.classList.remove('hidden');
+    if (roomCodeEl) roomCodeEl.textContent = code;
+    if (waitingEl) waitingEl.textContent = 'Aguardando o oponente entrar…';
+    setStatus('Preparando a sala…');
+
+    relayStart('host', code);
+
+    setNetTimer('room', 16000, () => {
+      if (NET.code === code && !NET.connected && !NET.roomReady && mode === 'lobby') {
+        setStatus('A sala não ficou online. Verifique sua internet e crie outra sala.', 'err');
+      }
+    });
+
+    ensurePeerLib((ok) => {
+      if (!ok || NET.code !== code || NET.role !== 'host' || mode !== 'lobby') return;
+      createHostPeer(code);
+    });
+  }
+
+  function createGuestPeer(code) {
+    const myId = PEER_PREFIX + 'g-' + Math.random().toString(36).slice(2, 8);
+    let peer;
+    try {
+      peer = new window.Peer(myId, {
+        debug: 0,
+        config: { iceServers: ICE_SERVERS }
+      });
+    } catch (err) {
+      return;
+    }
+    NET.peer = peer;
+
+    peer.on('open', () => {
+      if (peer !== NET.peer || NET.connected) return;
+      let conn;
+      try {
+        conn = peer.connect(PEER_PREFIX + code.toLowerCase(), { reliable: true, serialization: 'json' });
+      } catch (err) {
+        return;
+      }
+      NET.pending = conn;
+      conn.on('open', () => {
+        if (NET.connected) {
+          try { conn.close(); } catch (err) { /* já fechou */ }
+          return;
+        }
+        attachConn(conn, 'guest');
+      });
+      conn.on('error', () => { /* o relay cobre a falha */ });
+      setNetTimer('link', LINK_LIMIT, () => {
+        if (!NET.connected && NET.code === code) relayBeginKick(NET.relay);
+      });
+    });
+
+    peer.on('error', (err) => {
+      if (peer !== NET.peer || NET.connected) return;
+      const type = String((err && err.type) || '');
+      if (type === 'peer-unavailable') {
+        // o host pode estar só no relay: tenta imediatamente
+        relayBeginKick(NET.relay);
+        setNetTimer('notfound', 8000, () => {
+          if (!NET.connected && NET.code === code) {
+            clearNetTimer('join');
+            setStatus('Sala não encontrada. Confira o código e tente de novo.', 'err');
+          }
+        });
+      } else if (type === 'network' || type === 'server-error') {
+        relayBeginKick(NET.relay);
+      }
+    });
+
+    peer.on('disconnected', () => {
+      if (peer !== NET.peer) return;
+      try { peer.reconnect(); } catch (err) { /* tenta de novo depois */ }
     });
   }
 
   function joinRoom(raw) {
     audio();
     if (actx && actx.state === 'suspended') actx.resume();
-    if (!window.Peer) {
-      setStatus('Carregando modo online…');
-      whenPeer((ok) => {
-        if (mode !== 'lobby') return;
-        if (ok) joinRoom(raw);
-        else setStatus('Modo online indisponível (sem internet).', 'err');
-      });
-      return;
-    }
     const code = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
     if (code.length < 5) {
       setStatus('Digite o código de 5 letras da sala.', 'err');
@@ -1064,66 +1503,77 @@
     NET.code = code;
     NET.role = 'guest';
     online = 'guest';
+    NET.roomReady = false;
     setStatus('Conectando à sala ' + code + '…');
 
-    const myId = PEER_PREFIX + 'g-' + Math.random().toString(36).slice(2, 8);
-    let peer;
-    try {
-      peer = new window.Peer(myId, { debug: 0 });
-    } catch (err) {
-      setStatus('Falha ao conectar. Tente novamente.', 'err');
-      return;
-    }
-    NET.peer = peer;
+    const r = relayStart('guest', code);
+    r.joinTimer = setTimeout(() => {
+      r.joinTimer = null;
+      relayBeginKick(r);
+    }, RELAY_HELLO_DELAY);
 
-    peer.on('open', () => {
-      if (peer !== NET.peer) return;
-      const conn = peer.connect(PEER_PREFIX + code.toLowerCase(), { reliable: true, serialization: 'json' });
-      conn.on('open', () => attachConn(conn, 'guest'));
-      conn.on('error', () => {
-        if (!NET.connected) setStatus('Não foi possível entrar na sala. Confira o código.', 'err');
-      });
+    setNetTimer('join', RELAY_JOIN_LIMIT, () => {
+      if (!NET.connected && NET.code === code) {
+        setStatus('Não foi possível entrar. Confira o código, a internet dos dois e tente novamente.', 'err');
+      }
     });
 
-    peer.on('error', (err) => {
-      const type = String((err && err.type) || '');
-      if (NET.connected) return;
-      if (type === 'peer-unavailable') {
-        setStatus('Sala não encontrada. Confira o código.', 'err');
-      } else if (type === 'network' || type === 'server-error') {
-        setStatus('Sem conexão com o servidor do jogo online.', 'err');
-      } else {
-        setStatus('Erro de conexão: ' + (type || 'desconhecido'), 'err');
-      }
+    ensurePeerLib((ok) => {
+      if (!ok || NET.code !== code || NET.role !== 'guest' || mode !== 'lobby') return;
+      createGuestPeer(code);
     });
   }
 
   function attachConn(conn, role) {
-    if (NET.connected) return;
+    if (NET.conn || NET.connected) {
+      try { conn.close(); } catch (err) { /* já fechou */ }
+      return;
+    }
     NET.conn = conn;
     NET.role = role;
-    NET.connected = true;
     online = role;
 
     conn.on('data', onNetData);
-    conn.on('close', onNetClose);
-    conn.on('error', onNetClose);
-
-    hideLobby();
-    netSend({ t: 'hello', role });
-
-    // host abre a seleção; o guest já recebe do host o personagem escolhido
-    startOnlineSelect();
-
-    if (role === 'host') {
-      netSend({ t: 'sel', i: 0, ch: sel[0], ready: ready[0] });
-    } else {
-      netSend({ t: 'sel', i: 1, ch: sel[1], ready: ready[1] });
+    conn.on('error', () => { if (NET.conn === conn) onNetClose(); });
+    conn.on('close', () => { if (NET.conn === conn) onNetClose(); });
+    if (conn.on) {
+      conn.on('iceStateChanged', (state) => {
+        if (NET.connected) return;
+        if (state === 'failed') relayBeginKick(NET.relay);
+      });
     }
+
+    const opened = () => {
+      if (NET.conn !== conn || NET.connected) return;
+      clearNetTimers();
+      NET.connected = true;
+      NET.transport = 'peer';
+      hideLobby();
+      startOnlineSelect();
+      netSend({ t: 'hello', role });
+      netSend({
+        t: 'sel',
+        i: role === 'host' ? 0 : 1,
+        ch: sel[role === 'host' ? 0 : 1],
+        ready: ready[role === 'host' ? 0 : 1]
+      });
+      if (NET.relay) relayStop();
+      NET.pending = null;
+    };
+
+    if (conn.open) opened();
+    else conn.on('open', opened);
   }
 
   function onNetClose() {
-    if (!online || NET.closing) return;
+    if (NET.closing) return;
+    if (!NET.connected) {
+      if (NET.conn) NET.conn = null;
+      const r = NET.relay;
+      if (r) { r.due = true; relayBeginKick(r); }
+      return;
+    }
+    if (!online) return;
     cleanupNet();
     goMenu();
     showLobby('O oponente desconectou.', 'err');
@@ -1163,6 +1613,7 @@
 
   function onNetData(msg) {
     if (!msg || typeof msg !== 'object') return;
+    if (online) NET.lastRx = performance.now();
 
     if (online === 'host') {
       if (msg.t === 'key') {
@@ -1197,6 +1648,7 @@
         startMusic();
         pressed.clear();
       } else if (msg.t === 'st') {
+        NET.lastRx = performance.now();
         applyState(msg);
       }
     }
@@ -1221,6 +1673,11 @@
   }
 
   function sendState() {
+    if (NET.transport === 'mqtt') {
+      // relay público: 30 envios por segundo já é suficiente (o guest interpola)
+      NET.acc = (NET.acc + 1) % 2;
+      if (NET.acc) return;
+    }
     netSend({
       t: 'st',
       m: mode,
@@ -1723,6 +2180,26 @@
 
     if (online === 'host' && (mode === 'playing' || mode === 'over')) {
       sendState();
+    }
+
+    // No relay não existe evento de desconexão: um "batimento" periódico
+    // mantém os dois lados sabendo que o outro continua ali.
+    if (NET.transport === 'mqtt' &&
+      (mode === 'select' || mode === 'playing' || mode === 'over')) {
+      const nowMs = performance.now();
+      if (!NET.hbAt) NET.hbAt = nowMs;
+      if (!NET.lastRx) NET.lastRx = nowMs;
+      if (nowMs - NET.hbAt >= 1500) {
+        NET.hbAt = nowMs;
+        netSend({ t: 'hi' });
+      }
+      if (nowMs - NET.lastRx > 8000) {
+        NET.lastRx = nowMs;
+        onNetClose();
+      }
+    } else {
+      NET.hbAt = 0;
+      NET.lastRx = 0;
     }
 
     pressed.clear();

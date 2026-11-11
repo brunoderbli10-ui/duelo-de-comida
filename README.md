@@ -26,7 +26,7 @@ Abra o `index.html` no navegador (duplo clique já funciona) ou use a versão pu
 
 No online, o **host joga como P1 (WASD)** e o **convidado como P2 (setas)**.
 
-O modo online usa WebRTC ponto a ponto com o serviço público **PeerJS Cloud** só para apresentar os jogadores (sinalização). Não precisa de conta, instalação nem servidor de jogo. Quem criou a sala simula a partida; se ele sair, a partida termina. Deixe a aba aberta durante a partida (navegadores reduzem o ritmo de abas em segundo plano). Em redes corporativas muito restritivas, o P2P pode não conectar.
+O modo online tenta primeiro uma conexão **WebRTC ponto a ponto** (PeerJS Cloud só para sinalização). Se o P2P não abrir — o que acontece em redes com NAT restritivo, CGNAT, VPN ou firewall — o jogo entra sozinho por um **relay MQTT público via WebSocket (porta 443)**, sem conta e sem servidor próprio. Não precisa de instalação. Quem criou a sala simula a partida; se ele sair, a partida termina. Deixe a aba aberta durante a partida (navegadores reduzem o ritmo de abas em segundo plano). O relay pode adicionar um pouco de latência em relação ao P2P, mas costuma funcionar onde o P2P falha.
 
 ### Controles
 
@@ -54,7 +54,8 @@ O modo online usa WebRTC ponto a ponto com o serviço público **PeerJS Cloud** 
 
 ## Detalhes técnicos
 
-- Um único arquivo `index.html`, sem dependências locais. Apenas no modo online ele carrega o PeerJS por CDN.
+- Um único arquivo `index.html`, sem dependências locais. No modo online ele carrega o PeerJS por CDN quando disponível; se o CDN falhar, o relay MQTT continua funcionando.
+- O relay usa brokers públicos (EMQX e HiveMQ) apenas para transportar as mensagens do jogo; o código da sala é o nome do canal.
 - Sprites, bandeiras, comidas e efeitos são grades de pixels desenhadas no canvas.
 - Áudio gerado por Web Audio API (trilha e efeitos), com botão **SOM ON/OFF**.
 - Botões **MENU** e **SOM** no rodapé, e `M` para mutar.
